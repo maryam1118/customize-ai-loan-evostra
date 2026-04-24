@@ -4,3 +4,5 @@ numpy
 scikit-learn
 xgboost
 shap
+matplotlib
+reportlab
