@@ -83,12 +83,12 @@ with tab1:
     full = {c: 0 for c in all_columns}
 
     if dataset == "AMEX":
-        full["P_2"] = payment/1000
-        full["B_1"] = balance/100000
-        full["D_39"] = days/100
-        full["R_1"] = risk/10
-        full["S_3"] = spend/100000
-        full["D_41"] = delay/100
+        full["P_2"] = payment / 1000
+        full["B_1"] = balance / 100000
+        full["D_39"] = days / 100
+        full["R_1"] = risk / 10
+        full["S_3"] = spend / 100000
+        full["D_41"] = delay / 100
     else:
         full["RevolvingUtilizationOfUnsecuredLines"] = util
         full["age"] = age
@@ -101,7 +101,8 @@ with tab1:
 
     if st.button("Predict Risk"):
 
-        prob = model.predict_proba(df)[0][1]
+        prob = float(model.predict_proba(df)[0][1])
+
         st.session_state["prob"] = prob
         st.session_state["dataset"] = dataset
 
@@ -134,11 +135,11 @@ with tab1:
         st.write(f"Probability: {prob:.2f}")
 
         if prob < 0.3:
-            st.success("Low Risk")
+            st.success("🟢 Low Risk")
         elif prob < 0.7:
-            st.warning("Medium Risk")
+            st.warning("🟡 Medium Risk")
         else:
-            st.error("High Risk")
+            st.error("🔴 High Risk")
 
 # ================= TAB 2 ================= #
 with tab2:
@@ -147,24 +148,23 @@ with tab2:
 
     if "prob" in st.session_state:
 
-        prob = st.session_state["prob"]
+        prob = float(st.session_state["prob"])
         dataset = st.session_state["dataset"]
 
-        amex = prob if dataset == "AMEX" else 0.5
-        gmsc = prob if dataset == "GMSC" else 0.5
+        amex = float(prob if dataset == "AMEX" else 0.5)
+        gmsc = float(prob if dataset == "GMSC" else 0.5)
 
-        st.progress(amex, text=f"AMEX Risk: {amex:.2f}")
-        st.progress(gmsc, text=f"GMSC Risk: {gmsc:.2f}")
+        # FIXED progress issue
+        st.progress(min(max(amex, 0.0), 1.0), text=f"AMEX Risk: {amex:.2f}")
+        st.progress(min(max(gmsc, 0.0), 1.0), text=f"GMSC Risk: {gmsc:.2f}")
 
         if amex > gmsc:
-            st.error("AMEX higher risk")
+            st.error("AMEX predicts higher risk")
         elif gmsc > amex:
-            st.warning("GMSC higher risk")
+            st.warning("GMSC predicts higher risk")
         else:
-            st.success("Same risk")
+            st.success("Both models show similar risk")
 
     else:
         st.info("Run prediction first")
-
-  
-    
+                
