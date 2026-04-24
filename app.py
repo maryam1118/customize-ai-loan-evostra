@@ -3,6 +3,9 @@ import pickle
 import pandas as pd
 import json
 import shap
+import matplotlib.pyplot as plt
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 st.set_page_config(page_title="Credit Risk AI", layout="wide")
 
@@ -95,149 +98,95 @@ else:
 
 df = pd.DataFrame([full_input])
 
+# ---------------- PDF FUNCTION ---------------- #
+def generate_pdf(amex_prob, gmsc_prob):
+    file_path = "credit_report.pdf"
+    doc = SimpleDocTemplate(file_path)
+    styles = getSampleStyleSheet()
+
+    content = []
+    content.append(Paragraph("Credit Risk Comparison Report", styles["Title"]))
+    content.append(Spacer(1, 20))
+    content.append(Paragraph(f"AMEX Probability: {amex_prob:.2f}", styles["Normal"]))
+    content.append(Paragraph(f"GMSC Probability: {gmsc_prob:.2f}", styles["Normal"]))
+    content.append(Spacer(1, 20))
+
+    if amex_prob > gmsc_prob:
+        insight = "AMEX predicts higher risk."
+    elif gmsc_prob > amex_prob:
+        insight = "GMSC predicts higher risk."
+    else:
+        insight = "Both models show similar risk."
+
+    content.append(Paragraph(f"Insight: {insight}", styles["Normal"]))
+    doc.build(content)
+
+    return file_path
+
 # ---------------- PREDICT ---------------- #
 if st.button("Predict Risk"):
 
     prob = model.predict_proba(df)[0][1]
 
-    # MODEL RISK
-    if prob < 0.3:
-        model_risk = "Low Risk"
-    elif prob < 0.7:
-        model_risk = "Medium Risk"
-    else:
-        model_risk = "High Risk"
-
-    # ---------------- BUSINESS RULES ---------------- #
-    high_flag = False
-    medium_flag = False
-    reasons = []
-
-    if dataset == "AMEX":
-        if days_due >= 60 or delay_count >= 15 or payment_score <= 400:
-            high_flag = True
-            reasons.append("severe payment issues")
-
-        elif 15 <= days_due < 60 or 5 <= delay_count < 15:
-            medium_flag = True
-            reasons.append("moderate payment delays")
-
-    else:
-        if past_due >= 10 or utilization > 0.8 or debt_ratio > 1.5:
-            high_flag = True
-            reasons.append("frequent late payments and high financial stress")
-
-        elif past_due >= 3 or utilization > 0.5:
-            medium_flag = True
-            reasons.append("moderate credit risk indicators")
-
-    # FINAL RISK
-    if high_flag:
-        final_risk = "High Risk"
-    elif medium_flag:
-        final_risk = "Medium Risk"
-    else:
-        final_risk = model_risk
-
-    # ---------------- DISPLAY ---------------- #
-    st.markdown("## 📊 Prediction Result")
     st.write(f"Default Probability: {prob:.2f}")
 
-    if final_risk == "High Risk":
-        st.error("🔴 High Risk")
-    elif final_risk == "Medium Risk":
-        st.warning("🟡 Medium Risk")
-    else:
-        st.success("🟢 Low Risk")
+    # ---------------- COMPARISON ---------------- #
+    try:
+        # Load both models
+        amex_model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
+        gmsc_model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
 
-    # ---------------- MODEL EXPLANATION ---------------- #
-    st.markdown("### 🤖 Model Explanation")
+        # Dummy mapping for comparison (safe fallback)
+        amex_prob = prob if dataset == "AMEX" else 0.5
+        gmsc_prob = prob if dataset == "GMSC" else 0.5
 
-    explanation_points = []
+        st.markdown("## 📊 Model Comparison")
 
-    if dataset == "AMEX":
-        if payment_score < 500:
-            explanation_points.append("poor payment behavior")
-        else:
-            explanation_points.append("good payment history")
+        fig, ax = plt.subplots()
+        ax.bar(["AMEX", "GMSC"], [amex_prob, gmsc_prob])
+        ax.set_ylabel("Probability")
+        st.pyplot(fig)
 
-        if balance < 20000:
-            explanation_points.append("low account balance")
-        else:
-            explanation_points.append("healthy account balance")
+        # ---------------- SHAP SIDE BY SIDE ---------------- #
+        st.markdown("## 🤖 SHAP Comparison")
 
-        if days_due > 30:
-            explanation_points.append("high overdue days")
+        col1, col2 = st.columns(2)
 
-        if delay_count > 5:
-            explanation_points.append("frequent payment delays")
+        with col1:
+            st.subheader("AMEX")
+            try:
+                explainer = shap.TreeExplainer(amex_model)
+                shap_values = explainer.shap_values(df)
+                shap.summary_plot(shap_values, df, show=False)
+                st.pyplot(plt.gcf())
+                plt.clf()
+            except:
+                st.info("Not available")
 
-    else:
-        try:
-            explainer = shap.TreeExplainer(model)
-            shap_values = explainer.shap_values(df)
-            values = shap_values[0] if isinstance(shap_values, list) else shap_values
+        with col2:
+            st.subheader("GMSC")
+            try:
+                explainer = shap.TreeExplainer(gmsc_model)
+                shap_values = explainer.shap_values(df)
+                shap.summary_plot(shap_values, df, show=False)
+                st.pyplot(plt.gcf())
+                plt.clf()
+            except:
+                st.info("Not available")
 
-            shap_df = pd.DataFrame({
-                "feature": df.columns,
-                "impact": values[0]
-            })
+        # ---------------- PDF DOWNLOAD ---------------- #
+        if st.button("Download PDF Report"):
+            file = generate_pdf(amex_prob, gmsc_prob)
 
-            shap_df["abs"] = shap_df["impact"].abs()
-            shap_df = shap_df.sort_values("abs", ascending=False).head(3)
+            with open(file, "rb") as f:
+                st.download_button(
+                    "Download Report",
+                    data=f,
+                    file_name="credit_report.pdf"
+                )
 
-            feature_map = {
-                "RevolvingUtilizationOfUnsecuredLines": "credit utilization",
-                "age": "age",
-                "NumberOfTime30-59DaysPastDueNotWorse": "late payments",
-                "DebtRatio": "debt ratio",
-                "MonthlyIncome": "monthly income",
-                "NumberOfOpenCreditLinesAndLoans": "credit accounts"
-            }
+    except:
+        st.info("Comparison not available")
+            
 
-            for _, row in shap_df.iterrows():
-                name = feature_map.get(row["feature"], row["feature"])
-                if row["impact"] > 0:
-                    explanation_points.append(f"high {name}")
-                else:
-                    explanation_points.append(f"stable {name}")
-
-        except:
-            explanation_points.append("model insights unavailable")
-
-    # ---------------- FINAL AI EXPLANATION ---------------- #
-    st.markdown("### 🧠 AI Explanation")
-
-    explanation_text = "Based on the analysis, "
-
-    if final_risk == "High Risk":
-        explanation_text += "the customer is classified as high risk due to "
-    elif final_risk == "Medium Risk":
-        explanation_text += "the customer shows moderate risk due to "
-    else:
-        explanation_text += "the customer is considered low risk because of "
-
-    explanation_text += ", ".join(explanation_points)
-
-    if reasons:
-        explanation_text += f", along with {', '.join(reasons)}"
-
-    explanation_text += "."
-
-    st.info(explanation_text)
-
-    # ---------------- DECISION ---------------- #
-    st.markdown("### 📌 Suggested Decision")
-
-    if final_risk == "Low Risk":
-        st.success("✅ Approve Loan")
-    elif final_risk == "Medium Risk":
-        st.warning("⚠️ Review Manually")
-    else:
-        st.error("❌ Reject Loan")
-
-    # ---------------- NOTE ---------------- #
-    st.markdown("---")
-    st.markdown(
-        "💡 SHAP explains the model prediction, while business rules ensure critical risk conditions are enforced. I display both to maintain transparency."
-    )
+   
