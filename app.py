@@ -5,42 +5,6 @@ import json
 
 st.set_page_config(page_title="Credit Risk AI", layout="wide")
 
-# ---------------- UI ---------------- #
-st.markdown("""
-<style>
-.main { background-color: #f5f7fa; }
-h1, h2, h3 { color: #1f4e79; }
-</style>
-""", unsafe_allow_html=True)
-
-# ---------------- LOGIN ---------------- #
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-
-with open("users.json") as f:
-    users = json.load(f)
-
-def login():
-    st.title("🔐 Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        if u in users and users[u] == p:
-            st.session_state["logged_in"] = True
-            st.rerun()
-        else:
-            st.error("Invalid credentials")
-
-if not st.session_state["logged_in"]:
-    login()
-    st.stop()
-
-if st.sidebar.button("Logout"):
-    st.session_state["logged_in"] = False
-    st.rerun()
-
-# ---------------- TITLE ---------------- #
 st.title("💳 Credit Default Prediction Dashboard")
 
 tab1, tab2 = st.tabs(["📊 Prediction", "📈 Comparison"])
@@ -50,106 +14,76 @@ with tab1:
 
     dataset = st.selectbox("Select Dataset", ["AMEX", "GMSC"])
 
+    # -------- COMMON USER INPUT -------- #
+    st.sidebar.header("Customer Inputs")
+
+    payment = st.sidebar.slider("Payment Score", 300, 900, 700)
+    balance = st.sidebar.number_input("Balance", 0, 1000000, 40000)
+    days = st.sidebar.number_input("Days Past Due", 0, 120, 5)
+    risk = st.sidebar.slider("Risk Score", 0, 10, 3)
+    spend = st.sidebar.number_input("Spending", 0, 100000, 20000)
+    delay = st.sidebar.number_input("Delay Count", 0, 50, 2)
+
+    util = st.sidebar.slider("Credit Utilization", 0.0, 1.0, 0.3)
+    age = st.sidebar.slider("Age", 18, 80, 30)
+    late = st.sidebar.number_input("Late Payments (30–59 Days)", 0, 30, 1)
+    debt = st.sidebar.slider("Debt Ratio", 0.0, 5.0, 0.5)
+    income = st.sidebar.number_input("Income", 0, 1000000, 50000)
+    credit = st.sidebar.number_input("Open Credit Lines", 0, 20, 5)
+
+    # -------- LOAD MODEL -------- #
     if dataset == "AMEX":
         model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
         with open("columns/amex_columns.json") as f:
-            all_columns = json.load(f)
+            cols = json.load(f)
+
+        data = {c: 0 for c in cols}
+        data["P_2"] = payment / 1000
+        data["B_1"] = balance / 100000
+        data["D_39"] = days / 100
+        data["R_1"] = risk / 10
+        data["S_3"] = spend / 100000
+        data["D_41"] = delay / 100
+
     else:
         model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
         with open("columns/gmsc_columns.json") as f:
-            all_columns = json.load(f)
+            cols = json.load(f)
 
-    st.sidebar.header("Input Features")
+        data = {c: 0 for c in cols}
+        data["RevolvingUtilizationOfUnsecuredLines"] = util
+        data["age"] = age
+        data["NumberOfTime30-59DaysPastDueNotWorse"] = late
+        data["DebtRatio"] = debt
+        data["MonthlyIncome"] = income
+        data["NumberOfOpenCreditLinesAndLoans"] = credit
 
-    if dataset == "AMEX":
-        payment = st.sidebar.slider("Payment Score", 300, 900, 700)
-        balance = st.sidebar.number_input("Balance", 0, 1000000, 40000)
-        days = st.sidebar.number_input("Days Due", 0, 120, 5)
-        risk = st.sidebar.slider("Risk Score", 0, 10, 3)
-        spend = st.sidebar.number_input("Spending", 0, 100000, 20000)
-        delay = st.sidebar.number_input("Delay Count", 0, 50, 2)
-    else:
-        util = st.sidebar.slider("Credit Utilization", 0.0, 1.0, 0.3)
-        age = st.sidebar.slider("Age", 18, 80, 30)
-        late = st.sidebar.number_input("Late Payments (30–59 Days)", 0, 30, 1)
-        debt = st.sidebar.slider("Debt Ratio", 0.0, 5.0, 0.5)
-        income = st.sidebar.number_input("Income", 0, 1000000, 50000)
-        credit = st.sidebar.number_input("Open Credit Lines", 0, 20, 5)
-
-    full = {c: 0 for c in all_columns}
-
-    if dataset == "AMEX":
-        full["P_2"] = payment / 1000
-        full["B_1"] = balance / 100000
-        full["D_39"] = days / 100
-        full["R_1"] = risk / 10
-        full["S_3"] = spend / 100000
-        full["D_41"] = delay / 100
-    else:
-        full["RevolvingUtilizationOfUnsecuredLines"] = util
-        full["age"] = age
-        full["NumberOfTime30-59DaysPastDueNotWorse"] = late
-        full["DebtRatio"] = debt
-        full["MonthlyIncome"] = income
-        full["NumberOfOpenCreditLinesAndLoans"] = credit
-
-    df = pd.DataFrame([full])
+    df = pd.DataFrame([data])
 
     if st.button("Predict Risk"):
 
         prob = float(model.predict_proba(df)[0][1])
 
+        # store ALL inputs for comparison
+        st.session_state["inputs"] = {
+            "payment": payment,
+            "balance": balance,
+            "days": days,
+            "risk": risk,
+            "spend": spend,
+            "delay": delay,
+            "util": util,
+            "age": age,
+            "late": late,
+            "debt": debt,
+            "income": income,
+            "credit": credit
+        }
+
         st.session_state["prob"] = prob
-        st.session_state["dataset"] = dataset
-        st.session_state["df"] = df
-
-        # -------- MODEL EXPLANATION -------- #
-        st.markdown("## 🤖 Model Explanation (Data-driven)")
-
-        model_exp = []
-
-        if dataset == "AMEX":
-            if payment < 500:
-                model_exp.append("Low payment behavior indicates poor credit discipline")
-            if days > 30:
-                model_exp.append("Higher days past due suggests repayment delays")
-            if delay > 5:
-                model_exp.append("Frequent delays increase default probability")
-
-        else:
-            if late > 10:
-                model_exp.append("Frequent late payments indicate repayment risk")
-            if debt > 1:
-                model_exp.append("High debt ratio shows financial burden")
-            if util > 0.8:
-                model_exp.append("High credit utilization signals credit stress")
-
-        for m in model_exp:
-            st.write("•", m)
-
-        # -------- BUSINESS RULE -------- #
-        st.markdown("## ⚠️ Business Rule Explanation")
-
-        rules = []
-
-        if dataset == "AMEX":
-            if days > 60:
-                rules.append("Severe overdue triggers high-risk classification")
-            if payment < 400:
-                rules.append("Very poor payment score triggers rejection")
-
-        else:
-            if late > 20:
-                rules.append("Extreme late payments indicate high default risk")
-            if debt > 2:
-                rules.append("Very high debt ratio is unacceptable risk")
-
-        for r in rules:
-            st.write("🔴", r)
 
         # -------- RESULT -------- #
-        st.markdown("## 📊 Prediction Result")
-        st.write(f"Default Probability: {prob:.2f}")
+        st.subheader("📊 Prediction Result")
 
         if prob < 0.3:
             st.success("🟢 Low Risk")
@@ -158,77 +92,101 @@ with tab1:
         else:
             st.error("🔴 High Risk")
 
-        # -------- FINAL INTERPRETATION -------- #
-        st.markdown("## 🧠 Final Interpretation")
+        st.write(f"Probability: {prob:.2f}")
 
-        if prob < 0.3:
-            st.write("Customer is financially stable and safe for lending.")
-        elif prob < 0.7:
-            st.write("Customer shows moderate risk. Careful evaluation required.")
+        # -------- EXPLANATION -------- #
+        st.subheader("🤖 Explanation")
+
+        if prob > 0.7:
+            st.write("Customer is risky due to poor financial behavior.")
+        elif prob > 0.3:
+            st.write("Customer shows moderate risk indicators.")
         else:
-            st.write("Customer is highly risky. Loan approval not recommended.")
+            st.write("Customer is financially stable.")
 
-        # -------- YOUR LINE -------- #
         st.markdown("""
-💡 *SHAP explains the model prediction, while business rules ensure critical risk conditions are enforced. 
-Both are displayed to maintain transparency and support better financial decision-making.*
+💡 *SHAP explains the model prediction, while business rules ensure critical risk conditions are enforced.*
 """)
 
 # ================= TAB 2 ================= #
 with tab2:
 
-    st.markdown("## 📈 Model Comparison (User Friendly)")
+    st.subheader("📈 Model Comparison")
 
-    if "prob" in st.session_state:
+    if "inputs" in st.session_state:
 
-        try:
-            amex_model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
-            gmsc_model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
+        inp = st.session_state["inputs"]
 
-            amex_df = st.session_state["df"]
-            gmsc_df = st.session_state["df"]
+        # -------- LOAD BOTH MODELS -------- #
+        amex_model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
+        gmsc_model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
 
-            amex_prob = float(amex_model.predict_proba(amex_df)[0][1])
-            gmsc_prob = float(gmsc_model.predict_proba(gmsc_df)[0][1])
+        with open("columns/amex_columns.json") as f:
+            amex_cols = json.load(f)
 
-            amex_prob = min(max(amex_prob, 0.0), 1.0)
-            gmsc_prob = min(max(gmsc_prob, 0.0), 1.0)
+        with open("columns/gmsc_columns.json") as f:
+            gmsc_cols = json.load(f)
 
-            st.markdown("### 🔢 Risk Scores Comparison")
+        # -------- BUILD BOTH INPUTS -------- #
+        amex_data = {c: 0 for c in amex_cols}
+        amex_data["P_2"] = inp["payment"] / 1000
+        amex_data["B_1"] = inp["balance"] / 100000
+        amex_data["D_39"] = inp["days"] / 100
+        amex_data["R_1"] = inp["risk"] / 10
+        amex_data["S_3"] = inp["spend"] / 100000
+        amex_data["D_41"] = inp["delay"] / 100
 
-            col1, col2 = st.columns(2)
+        gmsc_data = {c: 0 for c in gmsc_cols}
+        gmsc_data["RevolvingUtilizationOfUnsecuredLines"] = inp["util"]
+        gmsc_data["age"] = inp["age"]
+        gmsc_data["NumberOfTime30-59DaysPastDueNotWorse"] = inp["late"]
+        gmsc_data["DebtRatio"] = inp["debt"]
+        gmsc_data["MonthlyIncome"] = inp["income"]
+        gmsc_data["NumberOfOpenCreditLinesAndLoans"] = inp["credit"]
 
-            with col1:
-                st.metric("AMEX Risk", f"{amex_prob:.2f}")
-                st.progress(amex_prob)
+        amex_df = pd.DataFrame([amex_data])
+        gmsc_df = pd.DataFrame([gmsc_data])
 
-            with col2:
-                st.metric("GMSC Risk", f"{gmsc_prob:.2f}")
-                st.progress(gmsc_prob)
+        # -------- PREDICT -------- #
+        amex_prob = float(amex_model.predict_proba(amex_df)[0][1])
+        gmsc_prob = float(gmsc_model.predict_proba(gmsc_df)[0][1])
 
-            st.markdown("### 🧠 What does this mean?")
+        # -------- DISPLAY -------- #
+        col1, col2 = st.columns(2)
 
-            if amex_prob > gmsc_prob:
-                st.warning("AMEX is stricter → Behavioral risk detected")
-            elif gmsc_prob > amex_prob:
-                st.warning("GMSC is stricter → Financial stress detected")
-            else:
-                st.success("Both models agree → Strong decision confidence")
+        with col1:
+            st.metric("AMEX Risk", f"{amex_prob:.2f}")
+            st.progress(min(max(amex_prob, 0), 1))
 
-            st.markdown("### 📌 Final Conclusion")
+        with col2:
+            st.metric("GMSC Risk", f"{gmsc_prob:.2f}")
+            st.progress(min(max(gmsc_prob, 0), 1))
 
-            avg = (amex_prob + gmsc_prob) / 2
+        # -------- USER FRIENDLY -------- #
+        st.subheader("🧠 Understanding Comparison")
 
-            if avg < 0.3:
-                st.success("🟢 Safe customer → Approve loan")
-            elif avg < 0.7:
-                st.warning("🟡 Moderate → Review required")
-            else:
-                st.error("🔴 Risky → Reject loan")
+        if amex_prob > gmsc_prob:
+            st.write("AMEX sees higher risk → behavior-based model is stricter.")
+        elif gmsc_prob > amex_prob:
+            st.write("GMSC sees higher risk → financial profile is risky.")
+        else:
+            st.write("Both models agree → strong decision.")
 
-        except Exception as e:
-            st.error(f"Comparison Error: {e}")
+        st.subheader("📌 Final Conclusion")
+
+        avg = (amex_prob + gmsc_prob) / 2
+
+        if avg > 0.7:
+            st.error("High Risk → Reject Loan")
+        elif avg > 0.3:
+            st.warning("Moderate Risk → Review Required")
+        else:
+            st.success("Low Risk → Approve Loan")
 
     else:
         st.info("Run prediction first")
+
+   
+
+    
         
