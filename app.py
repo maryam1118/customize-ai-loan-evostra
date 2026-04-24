@@ -5,7 +5,7 @@ import json
 
 st.set_page_config(page_title="Credit Risk AI", layout="wide")
 
-# ---------------- UI STYLE ---------------- #
+# ---------------- UI ---------------- #
 st.markdown("""
 <style>
 .main { background-color: #f5f7fa; }
@@ -50,18 +50,14 @@ with tab1:
 
     dataset = st.selectbox("Select Dataset", ["AMEX", "GMSC"])
 
-    try:
-        if dataset == "AMEX":
-            model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
-            with open("columns/amex_columns.json") as f:
-                all_columns = json.load(f)
-        else:
-            model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
-            with open("columns/gmsc_columns.json") as f:
-                all_columns = json.load(f)
-    except:
-        st.error("Model files not found ❌")
-        st.stop()
+    if dataset == "AMEX":
+        model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
+        with open("columns/amex_columns.json") as f:
+            all_columns = json.load(f)
+    else:
+        model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
+        with open("columns/gmsc_columns.json") as f:
+            all_columns = json.load(f)
 
     st.sidebar.header("Input Features")
 
@@ -106,33 +102,53 @@ with tab1:
         st.session_state["prob"] = prob
         st.session_state["dataset"] = dataset
 
-        # -------- EXPLANATION FIRST -------- #
-        st.markdown("## 🤖 Model Explanation")
+        # -------- MODEL EXPLANATION -------- #
+        st.markdown("## 🤖 Model Explanation (Data-driven)")
 
-        explanation = []
+        model_exp = []
 
         if dataset == "AMEX":
             if payment < 500:
-                explanation.append("Low payment score increases risk")
+                model_exp.append("Low payment behavior indicates poor credit discipline")
             if days > 30:
-                explanation.append("High delay increases risk")
-            if balance < 10000:
-                explanation.append("Low balance indicates instability")
+                model_exp.append("Higher days past due suggests repayment delays")
+            if delay > 5:
+                model_exp.append("Frequent delays increase default probability")
 
         else:
             if late > 10:
-                explanation.append("Frequent late payments increase risk")
+                model_exp.append("Frequent late payments indicate repayment risk")
             if debt > 1:
-                explanation.append("High debt ratio increases risk")
+                model_exp.append("High debt ratio shows financial burden")
             if util > 0.8:
-                explanation.append("High credit utilization increases risk")
+                model_exp.append("High credit utilization signals credit stress")
 
-        for e in explanation:
-            st.write("•", e)
+        for m in model_exp:
+            st.write("•", m)
+
+        # -------- BUSINESS RULE -------- #
+        st.markdown("## ⚠️ Business Rule Explanation")
+
+        rules = []
+
+        if dataset == "AMEX":
+            if days > 60:
+                rules.append("Severe overdue triggers high-risk classification")
+            if payment < 400:
+                rules.append("Very poor payment score triggers rejection")
+
+        else:
+            if late > 20:
+                rules.append("Extreme late payments indicate high default risk")
+            if debt > 2:
+                rules.append("Very high debt ratio is unacceptable risk")
+
+        for r in rules:
+            st.write("🔴", r)
 
         # -------- RESULT -------- #
         st.markdown("## 📊 Prediction Result")
-        st.write(f"Probability: {prob:.2f}")
+        st.write(f"Default Probability: {prob:.2f}")
 
         if prob < 0.3:
             st.success("🟢 Low Risk")
@@ -141,30 +157,55 @@ with tab1:
         else:
             st.error("🔴 High Risk")
 
+        # -------- FINAL INTERPRETATION -------- #
+        st.markdown("## 🧠 Final Interpretation")
+
+        if prob < 0.3:
+            st.write("Customer is financially stable and safe for lending.")
+        elif prob < 0.7:
+            st.write("Customer shows moderate risk. Careful evaluation required.")
+        else:
+            st.write("Customer is highly risky. Loan approval not recommended.")
+
+        # -------- YOUR LINE -------- #
+        st.markdown("""
+💡 *SHAP explains the model prediction, while business rules ensure critical risk conditions are enforced. 
+Both are displayed to maintain transparency and support better financial decision-making.*
+""")
+
 # ================= TAB 2 ================= #
 with tab2:
 
-    st.markdown("## 📈 Model Comparison")
+    st.markdown("## 📈 Model Comparison (User Friendly)")
 
     if "prob" in st.session_state:
 
         prob = float(st.session_state["prob"])
         dataset = st.session_state["dataset"]
 
-        amex = float(prob if dataset == "AMEX" else 0.5)
-        gmsc = float(prob if dataset == "GMSC" else 0.5)
+        amex = prob if dataset == "AMEX" else 0.5
+        gmsc = prob if dataset == "GMSC" else 0.5
 
-        # FIXED progress issue
-        st.progress(min(max(amex, 0.0), 1.0), text=f"AMEX Risk: {amex:.2f}")
-        st.progress(min(max(gmsc, 0.0), 1.0), text=f"GMSC Risk: {gmsc:.2f}")
+        st.progress(amex, text=f"AMEX Risk Score: {amex:.2f}")
+        st.progress(gmsc, text=f"GMSC Risk Score: {gmsc:.2f}")
+
+        st.markdown("### 🧠 What does this mean?")
 
         if amex > gmsc:
-            st.error("AMEX predicts higher risk")
+            st.write("➡️ AMEX model is stricter and identifies higher risk.")
         elif gmsc > amex:
-            st.warning("GMSC predicts higher risk")
+            st.write("➡️ GMSC model is stricter for this profile.")
         else:
-            st.success("Both models show similar risk")
+            st.write("➡️ Both models agree on similar risk level.")
+
+        st.markdown("### 📌 Conclusion")
+
+        st.write("""
+- This comparison helps understand **how different models evaluate the same customer**  
+- If both models show high risk → **strong rejection signal**  
+- If mixed → **manual review recommended**
+""")
 
     else:
-        st.info("Run prediction first")
-                
+        st.info("Run prediction first to see comparison")
+            
