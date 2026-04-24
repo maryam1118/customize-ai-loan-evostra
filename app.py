@@ -101,6 +101,7 @@ with tab1:
 
         st.session_state["prob"] = prob
         st.session_state["dataset"] = dataset
+        st.session_state["df"] = df
 
         # -------- MODEL EXPLANATION -------- #
         st.markdown("## 🤖 Model Explanation (Data-driven)")
@@ -180,32 +181,54 @@ with tab2:
 
     if "prob" in st.session_state:
 
-        prob = float(st.session_state["prob"])
-        dataset = st.session_state["dataset"]
+        try:
+            amex_model = pickle.load(open("models/amex_xgb_model.pkl", "rb"))
+            gmsc_model = pickle.load(open("models/gmsc_xgb_model.pkl", "rb"))
 
-        amex = prob if dataset == "AMEX" else 0.5
-        gmsc = prob if dataset == "GMSC" else 0.5
+            amex_df = st.session_state["df"]
+            gmsc_df = st.session_state["df"]
 
-        st.progress(amex, text=f"AMEX Risk Score: {amex:.2f}")
-        st.progress(gmsc, text=f"GMSC Risk Score: {gmsc:.2f}")
+            amex_prob = float(amex_model.predict_proba(amex_df)[0][1])
+            gmsc_prob = float(gmsc_model.predict_proba(gmsc_df)[0][1])
 
-        st.markdown("### 🧠 What does this mean?")
+            amex_prob = min(max(amex_prob, 0.0), 1.0)
+            gmsc_prob = min(max(gmsc_prob, 0.0), 1.0)
 
-        if amex > gmsc:
-            st.write("➡️ AMEX model is stricter and identifies higher risk.")
-        elif gmsc > amex:
-            st.write("➡️ GMSC model is stricter for this profile.")
-        else:
-            st.write("➡️ Both models agree on similar risk level.")
+            st.markdown("### 🔢 Risk Scores Comparison")
 
-        st.markdown("### 📌 Conclusion")
+            col1, col2 = st.columns(2)
 
-        st.write("""
-- This comparison helps understand **how different models evaluate the same customer**  
-- If both models show high risk → **strong rejection signal**  
-- If mixed → **manual review recommended**
-""")
+            with col1:
+                st.metric("AMEX Risk", f"{amex_prob:.2f}")
+                st.progress(amex_prob)
+
+            with col2:
+                st.metric("GMSC Risk", f"{gmsc_prob:.2f}")
+                st.progress(gmsc_prob)
+
+            st.markdown("### 🧠 What does this mean?")
+
+            if amex_prob > gmsc_prob:
+                st.warning("AMEX is stricter → Behavioral risk detected")
+            elif gmsc_prob > amex_prob:
+                st.warning("GMSC is stricter → Financial stress detected")
+            else:
+                st.success("Both models agree → Strong decision confidence")
+
+            st.markdown("### 📌 Final Conclusion")
+
+            avg = (amex_prob + gmsc_prob) / 2
+
+            if avg < 0.3:
+                st.success("🟢 Safe customer → Approve loan")
+            elif avg < 0.7:
+                st.warning("🟡 Moderate → Review required")
+            else:
+                st.error("🔴 Risky → Reject loan")
+
+        except Exception as e:
+            st.error(f"Comparison Error: {e}")
 
     else:
-        st.info("Run prediction first to see comparison")
-            
+        st.info("Run prediction first")
+        
